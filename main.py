@@ -27,11 +27,25 @@ class OthelloEnvironment:
         
         return blank_square_indexes
 
-    def _canMove(self, player_square, blank_square_index):
-        """渡されたブランクマスの場所を基準に8方向を探索し、プレイヤーの石を着手可能か判断            
+    def _canMove(self, player_square, target_square_index):
+        """渡されたターゲットマスの場所を基準に8方向を探索し、プレイヤーの石を着手可能か判断            
         """
-        for search_index in constants.SearchSquareIndexes:
-            print(search_index.value)
+        for search_direction_index in constants.SearchDirectionIndexes:
+            # タプル要素ごとの足し算
+            # sample: (2, 5) = (-1, 1) + (3, 4)
+            search_index = tuple(t + s for t, s in zip(target_square_index, search_direction_index.value))
+            
+            # ターゲットを基準にある方向に1つマスを進めた場所がブランクなら、そこには石をおけない
+            if self.board[search_index] == constants.BLANK_SQUARE:
+                continue
+            
+            # ターゲットを基準にある方向に1つマスを進めた場所がプレイヤーの石なら、そこには石をおけない
+            if self.board[search_index] == player_square:
+                continue
+            
+            return True
+        
+        return False
         
 class Player:
     def __init__(self, play_square):
@@ -40,13 +54,15 @@ class Player:
     
 
 def main():
-    othello_env = OthelloEnvironment()
-    othello_env.compute_legal_moves(1)
     # 盤面の初期化
+    othello_env = OthelloEnvironment()
     
     # プレイヤーとコンピュータの先行・後攻決め
     
     # おけるマスの取得
+    othello_env.compute_legal_moves(1)
+    othello_env._canMove(1, (10, 10))
+    
     
     # マスを置く
     

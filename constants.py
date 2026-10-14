@@ -7,7 +7,7 @@ OTHELLO_BOARD_SIZE           = 8   # 盤面のサイズ
 INIT_SQUARE_INDEX_FROM_START = 3   # 盤面初期化時に石を置く位置(前から添え字を数える用)
 INIT_SQUARE_INDEX_FROM_END   = 4   # 盤面初期化時に石を置く位置(後ろから添え字を数える用)
 
-class SearchSquareIndexes(Enum):
+class SearchDirectionIndexes(Enum):
     # (row, col)
     ABOVE_SQUARE_INDEX       = (-1, 0)  # 上
     ABOVE_RIGHT_SQUARE_INDEX = (-1, 1)  # 右上
