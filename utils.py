@@ -7,6 +7,36 @@ class SquarePosition:
     row: int
     col: int
     
+@dataclass(slots=True)
+class UnidirectionalTurnOverInfo:
+    """単一方向にオセロをひっくり返すための情報
+    """
+    direction                   : constants.SearchDirectionOffsets # オセロをひっくり返す方向
+    bracketing_player_position  : SquarePosition                   # 相手マスを挟むプレイヤーマスの位置
+    turn_over_num               : int                              # ひっくり返せる相手マスの枚数
+
+@dataclass(slots=True)
+class OmnidirectionalTurnOverInfo:
+    """全方向にオセロをひっくり返すための情報
+    """
+    legal_move_position         : SquarePosition                    # 着手位置
+    UnidirectionalTurnOverInfos : tuple[UnidirectionalTurnOverInfo, ...] # オセロをひっくり返すための情報
+    
+    def __str__(self):
+        lines = [
+            f"着手位置: {self.legal_move_position}",
+            "この着手位置でオセロをひっくり返す際に使用する情報"
+        ]
+        
+        for unidirectional_turn_over_info in self.UnidirectionalTurnOverInfos:
+            lines.append(
+                f"  オセロをひっくり返す方向 : {unidirectional_turn_over_info.direction},"
+                f"  相手マスを挟むプレイヤーマスの位置 : {unidirectional_turn_over_info.bracketing_player_position.name},"
+                f"  ひっくり返せる相手マスの枚数 : {unidirectional_turn_over_info.turn_over_num}"
+            )
+        
+        return "\n".join(lines)
+
 
 def move_square_position(target_square_position: SquarePosition, offset_square_position: SquarePosition):
     """

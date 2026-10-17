@@ -1,6 +1,6 @@
 import torch
 import constants
-from utils import move_square_position, SquarePosition, validate_board_position
+from utils import move_square_position, SquarePosition, validate_board_position, UnidirectionalTurnOverInfo,OmnidirectionalTurnOverInfo
 class OthelloEnvironment:
     def __init__(self):
         self.reset_board()
@@ -9,11 +9,11 @@ class OthelloEnvironment:
         # 全マスを空マスにする
         self.board = torch.zeros((constants.OTHELLO_BOARD_SIZE, constants.OTHELLO_BOARD_SIZE), dtype=torch.int8)
         # 白マスを初期位置に置く
-        self.board[constants.INIT_SQUARE_INDEX_FROM_START, constants.INIT_SQUARE_INDEX_FROM_START] = constants.WRITE_SQUARE
-        self.board[-constants.INIT_SQUARE_INDEX_FROM_END, -constants.INIT_SQUARE_INDEX_FROM_END] = constants.WRITE_SQUARE
+        self.board[constants.INIT_SQUARE_POSITION_FROM_START, constants.INIT_SQUARE_POSITION_FROM_START] = constants.WRITE_SQUARE
+        self.board[-constants.INIT_SQUARE_POSITION_FROM_END, -constants.INIT_SQUARE_POSITION_FROM_END] = constants.WRITE_SQUARE
         # 黒マスを初期位置に置く
-        self.board[constants.INIT_SQUARE_INDEX_FROM_START, -constants.INIT_SQUARE_INDEX_FROM_END] = constants.BLACK_SQUARE
-        self.board[-constants.INIT_SQUARE_INDEX_FROM_END, constants.INIT_SQUARE_INDEX_FROM_START] = constants.BLACK_SQUARE
+        self.board[constants.INIT_SQUARE_POSITION_FROM_START, -constants.INIT_SQUARE_POSITION_FROM_END] = constants.BLACK_SQUARE
+        self.board[-constants.INIT_SQUARE_POSITION_FROM_END, constants.INIT_SQUARE_POSITION_FROM_START] = constants.BLACK_SQUARE
     
     def _filter_blank_square_positions(self):
         """ (row, col)のlist[tuple]形式でブランクマスのpositionを返す
@@ -30,7 +30,7 @@ class OthelloEnvironment:
         return blank_square_positions
 
     def _canMove(self, player_square: int, opponent_square: int, blank_square_position: SquarePosition):
-        """渡されたターゲットマスの場所を基準に8方向を探索し、プレイヤーの石を着手可能か判断            
+        """渡されたターゲットマスの場所を基準に8方向を探索し、反転できるマスが1つ反転できるマスが1つ以上ある着手位置を返す
         """
         for search_direction_offset in constants.SearchDirectionOffsets:
             if self._can_capture(player_square, opponent_square, blank_square_position, search_direction_offset.value):
@@ -70,9 +70,31 @@ class OthelloEnvironment:
 
     def compute_legal_move_positions(self, player_square, opponent_square):
         """着手できるマスを計算し、対象のマスをすべて返す
+        sample: (
+                    # 着手可能マス
+                    SquarePosition(row=3, col=3): {
+                        (
+                            UnidirectionalTurnOverInfo(
+                                SquarePosition(row=5, col=3),  # 相手マスを挟むプレイヤーマスの位置
+                                SquarePosition(row=1, col=0),  # オセロをひっくり返す方向
+                                2                              # ある方向にひっくり返せる相手マスの枚数
+                            ),
+                            UnidirectionalTurnOverInfo(
+                                SquarePosition(row=5, col=3),  # 相手マスを挟むプレイヤーマスの位置
+                                SquarePosition(row=-1, col=0), # オセロをひっくり返す方向
+                                2                              # ある方向にひっくり返せる相手マスの枚数
+                            ),
+                        ),
+                    },
+                    SquarePosition(row=5, col=1): {
+                        # 別の着手位置に対する反転情報
+                        ...
+                    },
+                ])
         """
         
         legal_move_positions = []
+        # ブランクマスを取得
         blank_square_positions = self._filter_blank_square_positions()
         
         if not blank_square_positions:
@@ -83,24 +105,65 @@ class OthelloEnvironment:
                 legal_move_positions.append(blank_square_position)
         
         return legal_move_positions
+    
+    def memo_turn_over_info():
+        """
+        """
         
 class Player:
     def __init__(self, play_square):
         self.play_square = play_square
     
     
+def temp():
+    #     SquarePosition(row=3, col=3): {
+    #     (
+    #         UnidirectionalTurnOverInfo(
+    #             SquarePosition(row=5, col=3),  # 相手マスを挟むプレイヤーマスの位置
+    #             SquarePosition(row=1, col=0),  # オセロをひっくり返す方向
+    #             2                              # ある方向にひっくり返せる相手マスの枚数
+    #         ),
+    #         UnidirectionalTurnOverInfo(
+    #             SquarePosition(row=5, col=3),  # 相手マスを挟むプレイヤーマスの位置
+    #             SquarePosition(row=-1, col=0), # オセロをひっくり返す方向
+    #             2                              # ある方向にひっくり返せる相手マスの枚数
+    #         ),
+    #     ),
+    # },
+    
+    # legal_move_position = SquarePosition(row=1, col=2)
+    # sample1 = SquarePosition(row=5, col=3)
+    # direction = constants.SearchDirectionOffsets.ABOVE_SQUARE_POSITION
+    # turn_over_num1 = 2
+    
+    # u1 = UnidirectionalTurnOverInfo(sample1, direction, turn_over_num1)
+    # u2 = UnidirectionalTurnOverInfo(sample1, direction, turn_over_num1)
 
+    
+    # sample1 = SquarePosition(row=5, col=3)
+    # sample2 = SquarePosition(row=4, col=3)
+    # direction = constants.SearchDirectionOffsets.ABOVE_SQUARE_POSITION
+    # turn_over_num1 = 2
+    
+    # u3 = UnidirectionalTurnOverInfo(sample1, direction, turn_over_num1)
+    # u4 = UnidirectionalTurnOverInfo(sample1, direction, turn_over_num1)
+    
+    # o1 = OmnidirectionalTurnOverInfo(legal_move_position, (u1, u2))
+    
 def main():
+    temp()
     # 盤面の初期化
     othello_env = OthelloEnvironment()    
     # プレイヤーとコンピュータの先行・後攻決め
     
     # おけるマスの取得
-    legal_move_positions = othello_env.compute_legal_move_positions(1, 2)
-    for i in legal_move_positions:
-        print(i.row, i.col)
+    # legal_move_positions = othello_env.compute_legal_move_positions(1, 2)
+    # for i in legal_move_positions:
+    #     print(i.row, i.col)
 
     # マスを置く
+    
+    # ひっくり返せるマスの位置を一覧で取得(着手可能マスと、ひっくり返す先の終了位置マスのみ)
     
     # マスをひっくり返す
     
