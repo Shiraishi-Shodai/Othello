@@ -8,6 +8,7 @@ OTHELLO_BOARD_SIZE           = 8     # 盤面のサイズ
 INIT_SQUARE_POSITION_FROM_START = 3  # 盤面初期化時に石を置く位置(前から添え字を数える用)
 INIT_SQUARE_POSITION_FROM_END   = 4  # 盤面初期化時に石を置く位置(後ろから添え字を数える用)
 TURN_OVER_NUM_ZERO              = 0  # ひっくり返せるマスが　0マス
+GAME_OVER_BLANK_NUM             = 0  # ゲーム終了となる際のブランクマスの数
 
 class SearchDirectionOffsets(Enum):
     # (row, col)

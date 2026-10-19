@@ -1,6 +1,6 @@
 import torch
 import constants
-from utils import move_square_position, SquarePosition, validate_board_position, DirectionalTurnOverInfo, MoveTurnOverInfo
+from utils import move_square_position, SquarePosition, validate_board_position, DirectionalTurnOverInfo, MoveTurnOverInfo, player_switcher
 class OthelloEnvironment:
     def __init__(self):
         self.square_type = torch.int8
@@ -169,45 +169,140 @@ class OthelloEnvironment:
         
         return legal_move_infos
     
+    def _compute_turn_over_indices(self, 
+                  legal_move_info : MoveTurnOverInfo, 
+                  opponent_square : int,
+                  ) -> torch.Tensor:
+        """ユーザーが指定したマスを基準にひっくり返すボードの(row, col)のTensorを返す
+        """
+        legal_move_position = legal_move_info.legal_move_position
+        
+        # 着手マスの位置検証(指定したマス位置がボードの外であれば着手不可)
+        validate_board_position(legal_move_position, assert_output=True)
+        # 着手マスの値取得
+        legal_move_square = self.board[legal_move_position.row, legal_move_position.col]
+        # 着手マスの値検証(指定したマスがブランクマスでなければ着手不可)
+        assert legal_move_square == constants.BLANK_SQUARE, f"指定されたマスは、相手マスでないため着手できません。\n指定マス位置: {legal_move_position}\n: 指定マスの値: {legal_move_square}"
+        
+        turn_over_indices : list[tuple] = []
+        turn_over_position : SquarePosition = SquarePosition(row=legal_move_position.row, 
+                                                             col=legal_move_position.col)
+
+        turn_over_indices.append((legal_move_position.row, legal_move_position.col))
+        
+        for directional_turn_over_info in legal_move_info.directional_turn_over_infos:
+            turn_over_position.row = legal_move_position.row
+            turn_over_position.col = legal_move_position.col
+            
+            for _ in range(directional_turn_over_info.turn_over_num):
+                
+                # ひっくり返すマスの位置取得
+                turn_over_row, turn_over_col = move_square_position(turn_over_position, directional_turn_over_info.direction.value)
+                turn_over_position.row = turn_over_row
+                turn_over_position.col = turn_over_col
+                # ひっくり返すマスの位置検証(指定したマス位置がボードの外であれば着手不可)
+                validate_board_position(turn_over_position, assert_output=True)
+
+                turn_over_indices.append((turn_over_position.row, turn_over_position.col))
+
+        return torch.tensor(turn_over_indices, dtype=torch.long)
+
+    def step(self, 
+            legal_move_info : MoveTurnOverInfo, 
+            player_square: int,
+            opponent_square : int
+            ) -> None:
+        
+        turn_over_indices : torch.Tensor = self._compute_turn_over_indices(legal_move_info=legal_move_info, 
+                                                                                        opponent_square=opponent_square)
+        self.board[turn_over_indices[:, 0],turn_over_indices[:, 1]] = player_square
+
     def is_game_over(self) -> bool:
         blank_square_num = self.board[self.board == constants.BLANK_SQUARE].numel()
-        if blank_square_num:
+        
+        if blank_square_num == constants.GAME_OVER_BLANK_NUM:
             return True
         
         return False
-        
 class Player:
-    def __init__(self, play_square):
-        self.play_square = play_square
+    def __init__(self, player_square, opponent_square):
+        self.player_square   = player_square
+        self.opponent_square = opponent_square
+        
+    def get_action(self, len_legal_move_infos):
+        action = 0
+        while True:
+            try:
+                action = int(input(f"0 ~ {len_legal_move_infos - 1}までの数字を入力してください : "))
+                
+                # if 0 > action or action >= len_legal_move_infos:
+                #     raise ValueError("指定した範囲の数字を入力してください")
+                            
+                break
+            except:
+                print("エラーを検知しました。もう一度入力してください")
+                
+        return action
     
     
 def temp():
+    # a = torch.arange(10).reshape(-1, 2)
+    # b = torch.tensor([(0, 1), (2, 1), (4, 0)])
+    # print(a, end="\n")
+    # print(a[b[:, 0], b[:, 1]])
+    
+    a = SquarePosition(1, 0)
+    b = [copy(a.row), copy(a.col)]
+    print(b)
+    a.row = 10
+    a.col = 20
+    
+    print(b)
+    
     pass
     
 def main():
-    # 盤面の初期化
-    othello_env = OthelloEnvironment()    
+    # 盤面とプレイヤー初期化
+    env      = OthelloEnvironment()   
+    player1  = Player(player_square=constants.WRITE_SQUARE, opponent_square=constants.BLACK_SQUARE)
+    player2  = Player(player_square=constants.BLACK_SQUARE, opponent_square=constants.WRITE_SQUARE)
+    players  = [player1, player2]
+    switcher = player_switcher(players)
+
     # プレイヤーとコンピュータの先行・後攻決め
+    print(env.board, end="\n\n")
     
-    # おけるマスの取得
-    legal_move_infos : list[MoveTurnOverInfo] = othello_env.compute_legal_move_infos(1, 2)
-    for i in legal_move_infos:
-        print(i)
-    
-    # パスの判定
-    if not legal_move_infos:
-        print("着手可能なマスがありません。パスします。")
+    while True:
+        player = next(switcher)
+        
+        # 着手できる全マスとそのマスの付属情報を取得
+        legal_move_infos : list[MoveTurnOverInfo] = env.compute_legal_move_infos(player_square=player.player_square,
+                                                                                 opponent_square=player.opponent_square)
+        for i in legal_move_infos:
+            print(i)
+        
+        # パスの判定
+        if not legal_move_infos:
+            print("着手可能なマスがありません。パスします。")
 
-    # オセロを置く
-    
-    # マスをひっくり返す
-    
-    # ゲーム終了の判定
-    if othello_env.is_game_over():
-        print("ゲーム終了")
-    
-    # 次の着手を行う
-
+        # 着手マスを指定
+        action = player.get_action(len(legal_move_infos))
+        
+        if action == 100:
+            break
+        
+        # ボードにオセロを置く
+        env.step(legal_move_info=legal_move_infos[action], 
+                player_square=player.player_square, 
+                opponent_square=player.opponent_square)
+        
+        print(env.board, end="\n\n")
+        
+        # ゲーム終了の判定
+        if env.is_game_over():
+            print("ゲーム終了")
+            break
+        
 if __name__ == "__main__":
-    temp()
+    # temp()
     main()
