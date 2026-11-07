@@ -1,5 +1,5 @@
 from enum import Enum
-from utils import SquarePosition
+from othello_sample.utils import SquarePosition
 
 WRITE_SQUARE                 = 1     # 白石
 BLACK_SQUARE                 = 2     # 黒石

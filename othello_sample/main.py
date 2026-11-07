@@ -1,6 +1,6 @@
 import torch
-import constants
-from utils import move_square_position, SquarePosition, validate_board_position, DirectionalTurnOverInfo, MoveTurnOverInfo, player_switcher
+import othello_sample.constants as constants
+from othello_sample.utils import move_square_position, SquarePosition, validate_board_position, DirectionalTurnOverInfo, MoveTurnOverInfo, player_switcher
 class OthelloEnvironment:
     def __init__(self):
         self.square_type = torch.int8
@@ -230,19 +230,19 @@ class Player:
         self.opponent_square = opponent_square
         
     def get_action(self, len_legal_move_infos):
-        action = 0
         while True:
             try:
                 action = int(input(f"0 ~ {len_legal_move_infos - 1}までの数字を入力してください : "))
                 
-                # if 0 > action or action >= len_legal_move_infos:
-                #     raise ValueError("指定した範囲の数字を入力してください")
+                if action == 100:
+                    return action
+                elif 0 > action or action >= len_legal_move_infos:
+                    raise ValueError("指定した範囲の数字を入力してください")
                             
-                break
+                return action
             except:
                 print("エラーを検知しました。もう一度入力してください")
                 
-        return action
     
     
 def temp():
@@ -251,13 +251,13 @@ def temp():
     # print(a, end="\n")
     # print(a[b[:, 0], b[:, 1]])
     
-    a = SquarePosition(1, 0)
-    b = [copy(a.row), copy(a.col)]
-    print(b)
-    a.row = 10
-    a.col = 20
+    # a = SquarePosition(1, 0)
+    # b = [copy(a.row), copy(a.col)]
+    # print(b)
+    # a.row = 10
+    # a.col = 20
     
-    print(b)
+    # print(b)
     
     pass
     
