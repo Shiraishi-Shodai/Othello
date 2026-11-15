@@ -13,8 +13,8 @@ WTHOR_COORDINATE_LEN = 2
 BLANK_CELL = 0
 OWN_CELL = 1
 STOLEN_CELL = -1
-MAX_INDEX = BOARD_SIZE - 1
-MIN_INDEX = 0
+ACTION_SIZE = 65
+PASS_ACTION = 64
 
 # 環境用のAction作成
 def coordinate2action_id(coordinate) -> ENV_ACTIONS:
@@ -53,6 +53,15 @@ def mak_all_game_actions(records):
     
     return df
     
+def id2position(id):
+    row = id // BOARD_SIZE
+    col = id % BOARD_SIZE
+    
+    return (row, col)
+
+def position2id(position):
+    action_row, action_col = position
+    return action_row * BOARD_SIZE + action_col
 class Othello:
     def __init__(self):
         # 盤面の初期化
@@ -88,71 +97,71 @@ class Othello:
         
         self.state[0, player_init_index[:, 0], player_init_index[:, 1]] = OWN_CELL
         self.state[1, opponent_init_index[:, 0], opponent_init_index[:, 1]] = OWN_CELL
-
-    
-    def compute_legal_mask(self, state):
-        blank_indexes = self._get_blank_indexes()
-        legal_mask = np.zeros((BOARD_SIZE, BOARD_SIZE), dtype=np.bool)
-        
-        for blank_index in blank_indexes:
-            action = tuple(map(int, blank_index))
-            if not self._is_flippable(state, action):
-                continue
             
-            action_row, action_col = action
-            legal_mask[action_row, action_col] = True
-        
-        return legal_mask
-
-        
     def states(self):
         pass
         
     def next_state(self, state, action):
+        next_state = state.copy()
         
         # パスの場合はそのまま返す
-        if action is None:
-            return state
+        if action is PASS_ACTION:
+            return next_state
         
-        next_state = state.copy()
-
-        if not self._validate_index(action):
+        action_row, action_col = id2position(action)
+        if not self._validate_index(action_row, action_col):
             raise ValueError("indexが不正です")
+                
+        # actionが合法手に含まれない
+        legal_actions = self.compute_legal_actions(state)
+        if not legal_actions[action]:
+            return next_state
         
-        # actionで選んだインデックスに石を置く
-        action_row, action_col = action
+        next_state = self.flip(state, action)
         
-        # アクションが合法手に含まれない
-        legal_mask = self.compute_legal_mask(state)
-        if not legal_mask[action_row, action_col]:
-            return state
+        return next_state
 
-        if self.player_turn:
-            next_state[0, action_row, action_col] = OWN_CELL
-        else:
-            next_state[1, action_row, action_col] = OWN_CELL
+    def compute_legal_actions(self, state):
+        blank_actions = self._get_blank_actions()
+        legal_actions = np.zeros(ACTION_SIZE, dtype=np.bool)
+        
+        for blank_action in blank_actions:
+            if not self._is_flippable(state, blank_action):
+                continue
 
+            legal_actions[blank_action] = True
+        
+        # 合法手がない場合は、パスとする
+        if True not in legal_actions:
+            legal_actions[PASS_ACTION] = True
+        return legal_actions
+    
+    def flip(self, state, action):
         # 石の反転
         # パターンa : 元々自分の石→相手にひっくり返された (1 → 0)
         # パターンb : 元々相手の石→ひっくり返した        (0 → 1)
+        next_state = state.copy()
+        action_row, action_col = id2position(action)
+        if self.player_turn:
+            next_state[0, action_row, action_col] = OWN_CELL
+        else:
+            next_state[1, action_row, action_col] = OWN_CELL 
         flippable_indexes = self._calc_flippable_indexes(state, action)
         next_state[:, flippable_indexes[:, 0], flippable_indexes[:, 1]] = 1 - state[:, flippable_indexes[:, 0], flippable_indexes[:, 1]]
-        
         return next_state
     
-    def _validate_index(self, action):
-        action_row, action_col = action
-        if 0 > action_row or action_row >= BOARD_SIZE or 0 > action_col or action_col >= BOARD_SIZE:
+    def _validate_index(self, action_row, action_col):
+        if action_row < 0 or action_row >= BOARD_SIZE or action_col < 0 or action_col >= BOARD_SIZE:
             return False
         return True
     
-    def _get_blank_indexes(self):
+    def _get_blank_actions(self):
         player_state, opponent_state = self.state
         blank_cell_rows, blank_cell_cols = np.where(1 - player_state - opponent_state != BLANK_CELL)
-        blank_cell_rows = blank_cell_rows.reshape(-1, 1)
-        blank_cell_cols = blank_cell_cols.reshape(-1, 1)
-        blank_indexes = np.concatenate((blank_cell_rows, blank_cell_cols), axis=1)
-        return blank_indexes
+        blank_cell_rows = blank_cell_rows
+        blank_cell_cols = blank_cell_cols
+        blank_actions = [position2id((int(row), int(col))) for row, col in zip(blank_cell_rows, blank_cell_cols)]
+        return blank_actions
 
     def _is_flippable(self, state, action):
         flippable_indexes = self._calc_flippable_indexes(state, action)
@@ -164,7 +173,7 @@ class Othello:
     def _calc_flippable_indexes(self, state, action):
         # ひっくり返せるマスのindexを取得する
         flippable_indexes = []
-        action_row, action_col = action
+        action_row, action_col = id2position(action)
         player_state, opponent_state = state
 
         # 現在のプレイヤー視点を統一(自分のマスは1, 相手のマスは-1とする)
@@ -183,9 +192,9 @@ class Othello:
                 next_row += direction_row
                 next_col += direction_col
                 
-                if not self._validate_index((next_row, next_col)):
+                if not self._validate_index(next_row, next_col):
                     break
-                
+
                 next_cell = state_mask[next_row, next_col].item()
 
                 if next_cell is BLANK_CELL:
@@ -212,14 +221,16 @@ def main():
     # records = wthor["Record"].to_numpy()
     
     env = Othello()
-    action = (5, 4)
+    action = 37
     state = env.state
     next_state = env.next_state(state, action)
-    
+    print(next_state)
 
 def tmp():
-    pass
-
+    a = np.zeros(16, dtype=np.bool)
+    if True not in a:
+        a[-1] = True
+    print(a)
 
 if __name__ == "__main__":
     main()
