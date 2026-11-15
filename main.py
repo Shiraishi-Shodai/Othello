@@ -114,7 +114,7 @@ class Othello:
                 
         # actionが合法手に含まれない
         legal_actions = self.compute_legal_actions(state)
-        if not legal_actions[action]:
+        if action not in legal_actions:
             return next_state
         
         next_state = self.flip(state, action)
@@ -123,17 +123,18 @@ class Othello:
 
     def compute_legal_actions(self, state):
         blank_actions = self._get_blank_actions()
-        legal_actions = np.zeros(ACTION_SIZE, dtype=np.bool)
+        legal_actions = []
         
         for blank_action in blank_actions:
             if not self._is_flippable(state, blank_action):
                 continue
 
-            legal_actions[blank_action] = True
+            legal_actions.append(blank_action)
         
         # 合法手がない場合は、パスとする
-        if True not in legal_actions:
-            legal_actions[PASS_ACTION] = True
+        if not legal_actions:
+            legal_actions.append(PASS_ACTION)
+
         return legal_actions
     
     def flip(self, state, action):
