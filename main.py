@@ -83,11 +83,12 @@ class Othello:
             (0, -1),  # 左
             (-1, -1)  # 左上
         ]
+        
+        self.legal_actions = []
          
         player_init_index = None
         opponent_init_index = None
         
-        self.player_turn = True
         if self.player_turn:
             player_init_index = self.init_index["Black"]
             opponent_init_index = self.init_index["White"]
@@ -113,13 +114,18 @@ class Othello:
             raise ValueError("indexが不正です")
                 
         # actionが合法手に含まれない
-        legal_actions = self.compute_legal_actions(state)
-        if action not in legal_actions:
+        if action not in self.legal_actions:
             return next_state
         
         next_state = self.flip(state, action)
         
-        return next_state
+        # 終了判定
+        done = self.is_done(next_state)
+        
+        if not done:
+            self.player_turn = not self.player_turn
+        
+        return next_state, done
 
     def compute_legal_actions(self, state):
         blank_actions = self._get_blank_actions()
@@ -131,9 +137,11 @@ class Othello:
 
             legal_actions.append(blank_action)
         
-        # 合法手がない場合は、パスとする
+        # 合法手がない場合は、パスのみを選択可能な行動とする
         if not legal_actions:
             legal_actions.append(PASS_ACTION)
+            
+        self.legal_actions = legal_actions
 
         return legal_actions
     
@@ -147,9 +155,22 @@ class Othello:
             next_state[0, action_row, action_col] = OWN_CELL
         else:
             next_state[1, action_row, action_col] = OWN_CELL 
-        flippable_indexes = self._calc_flippable_indexes(state, action)
-        next_state[:, flippable_indexes[:, 0], flippable_indexes[:, 1]] = 1 - state[:, flippable_indexes[:, 0], flippable_indexes[:, 1]]
+        flippable_all_positions = self._calc_flippable_positions(state, action)
+        
+        if not len(flippable_all_positions):
+            return next_state
+        
+        flippable_rows, flippable_cols = flippable_all_positions[:, 0], flippable_all_positions[:, 1]
+        next_state[:, flippable_rows, flippable_cols] = 1 - state[:, flippable_rows, flippable_cols]
         return next_state
+    
+    def is_done(self, state):
+        sum_state = np.sum(state, axis=0)
+
+        if np.all(sum_state) == OWN_CELL:
+            return True
+
+        return False
     
     def _validate_index(self, action_row, action_col):
         if action_row < 0 or action_row >= BOARD_SIZE or action_col < 0 or action_col >= BOARD_SIZE:
@@ -165,15 +186,15 @@ class Othello:
         return blank_actions
 
     def _is_flippable(self, state, action):
-        flippable_indexes = self._calc_flippable_indexes(state, action)
-        if len(flippable_indexes):
+        flippable_all_positions = self._calc_flippable_positions(state, action)
+        if len(flippable_all_positions):
             return True
         
         return False
     
-    def _calc_flippable_indexes(self, state, action):
+    def _calc_flippable_positions(self, state, action):
         # ひっくり返せるマスのindexを取得する
-        flippable_indexes = []
+        flippable_all_positions = []
         action_row, action_col = id2position(action)
         player_state, opponent_state = state
 
@@ -185,7 +206,7 @@ class Othello:
             state_mask = player_state * -1 + opponent_state
         
         for direction_row, direction_col in self.directions:
-            flippable_index = []
+            flippable_positions = []
             next_row = action_row
             next_col = action_col
             
@@ -201,14 +222,20 @@ class Othello:
                 if next_cell is BLANK_CELL:
                     break
                 
-                if next_cell is OWN_CELL:
-                    flippable_indexes.append(flippable_index)
-                    break
+                if next_cell is STOLEN_CELL:
+                    flippable_positions.append([next_row, next_col])
+                    continue
                 
-                flippable_index.append((next_row, next_col))
+                if len(flippable_positions):
+                    flippable_all_positions.extend(flippable_positions)
+                break
+
+        if not flippable_all_positions:
+            return flippable_all_positions
         
-        flippable_indexes = np.array(list(itertools.chain.from_iterable(flippable_indexes))).reshape(-1, 2)
-        return flippable_indexes
+        flippable_all_positions = np.array(flippable_all_positions).reshape(-1, 2)
+
+        return flippable_all_positions
                 
 
     def step(self, action):
@@ -223,16 +250,21 @@ def main():
     
     env = Othello()
     action = 37
+    surrender_action = 100
     state = env.state
-    next_state = env.next_state(state, action)
-    print(next_state)
+    while True:
+        legal_actions = env.compute_legal_actions(state)
+        # action = int(input(f"legal actions : {legal_actions}"))
+        action = np.random.choice(legal_actions)
 
-def tmp():
-    a = np.zeros(16, dtype=np.bool)
-    if True not in a:
-        a[-1] = True
-    print(a)
+        next_state, done = env.next_state(state, action)
+        if done:
+            break
+        
+        state = next_state
+        print(state)
+    
+    
 
 if __name__ == "__main__":
     main()
-    # tmp()
