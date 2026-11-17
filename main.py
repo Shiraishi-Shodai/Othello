@@ -66,15 +66,11 @@ def position2id(position):
 class Othello:
     def __init__(self):
         # 盤面の初期化
-        self.state = {
-            "board": np.zeros((2, BOARD_SIZE, BOARD_SIZE), dtype=np.int8),
-            "player_turn": np.random.choice([True, False], p=[0.5, 0.5])
-        }
-        
-        self.init_index = {
-            "Black": np.array([(3, 4), (4, 3)]),
-            "White": np.array([(3, 3), (4, 4)])
-        }
+        self.state = np.zeros((2, BOARD_SIZE, BOARD_SIZE), dtype=np.int8)
+        self.state[0, 3, 4] = OWN_CELL
+        self.state[0, 4, 3] = OWN_CELL
+        self.state[1, 3, 3] = OWN_CELL
+        self.state[1, 4, 4] = OWN_CELL
         
         self.directions = [
             (-1, 0),  # 上
@@ -88,45 +84,36 @@ class Othello:
         ]
         
         self.legal_actions = []
-         
-        player_init_index = None
-        opponent_init_index = None
         
-        if self.state["player_turn"]:
-            player_init_index = self.init_index["Black"]
-            opponent_init_index = self.init_index["White"]
-        else:
-            player_init_index = self.init_index["White"]
-            opponent_init_index = self.init_index["Black"]  
-        
-        self.state["board"][0, player_init_index[:, 0], player_init_index[:, 1]] = OWN_CELL
-        self.state["board"][1, opponent_init_index[:, 0], opponent_init_index[:, 1]] = OWN_CELL
             
     def states(self):
         pass
         
-    def next_state(self, state, action):
+    def next_state(self, state, action, legal_actions, legal_mask):
         next_state = deepcopy(state)
         done = False
         
         # パスの場合はそのまま返す
         if action == PASS_ACTION:
-            pass
+            if not legal_mask[PASS_ACTION]:
+                raise ValueError("Passは選択できません")
         else:
             action_row, action_col = id2position(action)
             if not self._validate_index(action_row, action_col):
                 raise ValueError("indexが不正です")
                     
             # actionが合法手に含まれない
-            if action not in self.legal_actions:
+            if action not in legal_actions:
                 raise ValueError(f"{action}は合法手ではありません")
             
             next_state = self.flip(state, action)
             
         # 終了判定
         done = self.is_done(next_state)
-        next_state["player_turn"] = not next_state["player_turn"]
-              
+        
+        # プレイヤー視点入れ替え(参照を持つビューではなく、独立した配列を生成するためにcopyを使用)
+        next_state = next_state[::-1].copy()
+
         return next_state, done
 
     def compute_legal_actions(self, state):
@@ -143,38 +130,39 @@ class Othello:
         if not legal_actions:
             legal_actions.append(PASS_ACTION)
             
-        self.legal_actions = legal_actions
-
         return legal_actions
     
+    def create_legal_mask(self, legal_actions):
+        legal_mask = np.zeros(BOARD_SIZE*BOARD_SIZE, dtype=np.bool)
+        legal_mask[legal_actions] = True
+        return legal_mask.reshape(BOARD_SIZE, BOARD_SIZE)
+    
     def flip(self, state, action):
-        # 石の反転
-        # パターンa : 元々自分の石→相手にひっくり返された (1 → 0)
-        # パターンb : 元々相手の石→ひっくり返した        (0 → 1)
         next_state = deepcopy(state)
         action_row, action_col = id2position(action)
         
-        if next_state["player_turn"]:
-            next_state["board"][0, action_row, action_col] = OWN_CELL
-        else:
-            next_state["board"][1, action_row, action_col] = OWN_CELL 
         flippable_all_positions = self._calc_flippable_positions(state, action)
+        flippable_rows, flippable_cols = flippable_all_positions[:, 0], flippable_all_positions[:, 1]
         
         if not len(flippable_all_positions):
             return next_state
         
-        flippable_rows, flippable_cols = flippable_all_positions[:, 0], flippable_all_positions[:, 1]
-        next_state["board"][:, flippable_rows, flippable_cols] = 1 - state["board"][:, flippable_rows, flippable_cols]
+        # 着手
+        next_state[0, action_row, action_col] = OWN_CELL
+        # 反転できる石を反転
+        # パターンa : 元々自分の石→相手にひっくり返された (1 → 0)
+        # パターンb : 元々相手の石→ひっくり返した        (0 → 1)
+        next_state[:, flippable_rows, flippable_cols] = 1 - state[:, flippable_rows, flippable_cols]
         return next_state
     
     def is_done(self, next_state):
         # 終了条件1: 盤面がすべて埋まった
-        sum_board = np.sum(next_state["board"], axis=0)
+        sum_board = np.sum(next_state, axis=0)
         if np.all(sum_board == OWN_CELL).item():
             return True
         
         # 終了条件2: 2人も合法手が存在しない
-        legal_actions_len = sum([len(self.compute_legal_actions(next_state)) for turn in [True, False]])
+        legal_actions_len = sum([len(self.compute_legal_actions(next_state[::turn])) for turn in [1, -1]])
         if not legal_actions_len:
             return True
         
@@ -187,7 +175,7 @@ class Othello:
         return True
     
     def _get_blank_actions(self, state):
-        player_state, opponent_state = state["board"]
+        player_state, opponent_state = state
         blank_cell_rows, blank_cell_cols = np.where(1 - player_state - opponent_state != BLANK_CELL)
         blank_cell_rows = blank_cell_rows
         blank_cell_cols = blank_cell_cols
@@ -205,15 +193,9 @@ class Othello:
         # ひっくり返せるマスのindexを取得する
         flippable_all_positions = []
         action_row, action_col = id2position(action)
-        board, player_turn = state["board"], state["player_turn"]
-        player_state, opponent_state = board
 
         # 現在のプレイヤー視点を統一(自分のマスは1, 相手のマスは-1とする)
-        board_mask = None
-        if player_turn:
-            board_mask = player_state + opponent_state * -1
-        else:
-            board_mask = player_state * -1 + opponent_state
+        state_mask = state[0] - state[1]
         
         for direction_row, direction_col in self.directions:
             flippable_positions = []
@@ -227,7 +209,7 @@ class Othello:
                 if not self._validate_index(next_row, next_col):
                     break
 
-                next_cell = board_mask[next_row, next_col].item()
+                next_cell = state_mask[next_row, next_col].item()
 
                 if next_cell == BLANK_CELL:
                     break
@@ -259,24 +241,24 @@ def main():
     # records = wthor["Record"].to_numpy()
     
     env = Othello()
-    action = 37
+    action = 0
     surrender_action = 100
     state = env.state
+
     while True:
         legal_actions = env.compute_legal_actions(state)
-        action = int(input(f"legal actions : {legal_actions}"))
-        # action = np.random.choice(legal_actions).item()
-        
+        legal_mask = env.create_legal_mask(legal_actions)
+        # action = int(input(f"legal actions : {legal_actions}"))
+        action = np.random.choice(legal_actions).item()
         if action == surrender_action:
             print("降参です")
             break
-        next_state, done = env.next_state(state, action)
+        next_state, done = env.next_state(state, action, legal_actions, legal_mask)
         state = next_state
-        
         if done:
             break
-    
-    print(state["board"].sum(axis=0))
+
+    print(state.sum(axis=0))
 
 if __name__ == "__main__":
     main()
