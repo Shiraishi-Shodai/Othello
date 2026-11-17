@@ -1,13 +1,10 @@
-import pandas as pd
 import numpy as np
-from typing import TypeAlias
-import itertools
 
-BOARD_TIMESTEPS = 3
-BOARD_CHANNELS = 2
+# BOARD_TIMESTEPS = 3
+# BOARD_CHANNELS = 2
+# COL_DICT = {"a": 0, "b": 1, "c": 2, "d": 3, "e": 4, "f": 5, "g": 6, "h": 7}
+# WTHOR_COORDINATE_LEN = 2
 BOARD_SIZE = 8
-COL_DICT = {"a": 0, "b": 1, "c": 2, "d": 3, "e": 4, "f": 5, "g": 6, "h": 7}
-WTHOR_COORDINATE_LEN = 2
 BLANK_CELL = 0
 OWN_CELL = 1
 STOLEN_CELL = -1
@@ -43,13 +40,18 @@ class Othello:
         self.state[1, 3, 3] = OWN_CELL
         self.state[1, 4, 4] = OWN_CELL
         
-            
+        self.start_state = self.state.copy()
+        
+    def reset(self):
+        self.state = self.start_state.copy()
+        return self.state
+
     def states(self):
         pass
         
     def next_state(self, state, action, legal_actions):
         next_state = state
-        done = False
+        done = False    
                 
         # actionが合法手に含まれない
         if action not in legal_actions:
@@ -74,7 +76,13 @@ class Othello:
         next_state = next_state[::-1].copy()
 
         return next_state, done
+    
+    def reward(self, state, action, next_state):
+        pass
 
+    def step(self, action):
+        pass
+    
     def compute_legal_actions(self, state):
         blank_actions = self._get_blank_actions(state)
         legal_actions = []
@@ -93,7 +101,6 @@ class Othello:
     
     def flip(self, state, action):
         next_state = state.copy()
-        
         # 反転可能な石がない
         flippable_all_positions = self._calc_flippable_positions(state, action)
         if not len(flippable_all_positions):
@@ -185,16 +192,12 @@ class Othello:
         return flippable_all_positions
 
 
-    def step(self, action):
-        pass
-
-
 def main():
     
     env = Othello()
     action = 0
     surrender_action = 100
-    state = env.state
+    state = env.reset()
     
     while True:
         legal_actions = env.compute_legal_actions(state)
@@ -208,7 +211,7 @@ def main():
         state = next_state
         if done:
             break
-        print(state)
+        
     print(state.sum(axis=0))
 
 if __name__ == "__main__":
