@@ -1,4 +1,5 @@
 import numpy as np
+from collections import defaultdict
 
 # BOARD_TIMESTEPS = 3
 # BOARD_CHANNELS = 2
@@ -41,17 +42,17 @@ class Othello:
         self.state[1, 4, 4] = OWN_CELL
         
         self.start_state = self.state.copy()
+        self.agent_state = self.state.copy()
         
     def reset(self):
-        self.state = self.start_state.copy()
-        return self.state
+        self.agent_state = self.start_state.copy()
+        return self.agent_state
 
     def states(self):
         pass
-        
+
     def next_state(self, state, action, legal_actions):
         next_state = state
-        done = False    
                 
         # actionが合法手に含まれない
         if action not in legal_actions:
@@ -68,20 +69,34 @@ class Othello:
             if not self._validate_index(action_row, action_col):
                 raise ValueError("indexが不正です")
             next_state = self.flip(state, action)
-            
-        # 終了判定
-        done = self.is_done(next_state)
         
         # プレイヤー視点入れ替え(参照を持つビューではなく、独立した配列を生成するためにcopyを使用)
         next_state = next_state[::-1].copy()
 
-        return next_state, done
-    
-    def reward(self, state, action, next_state):
-        pass
+        return next_state
+      
+    def reward(self, done):
+        # 報酬の視点 : 各状態のプレイヤー視点
+        # 状況	     盤面変化   ゲーム終了  報酬
+        # 通常の着手  あり	      しない    0.0
+        # パス	     なし	     しない    0.0
+        # 勝利	     あり／なし	  する	   +1.0
+        # 敗北	     あり／なし	  する	   -1.0
+        # 引き分け    あり／なし   する     0.0
+        if not done:
+            return 0
+        
+        return 1
 
-    def step(self, action):
-        pass
+    def step(self, action, legal_actions):
+        state = self.agent_state
+        next_state = self.next_state(state, action, legal_actions)
+        done = self.is_done(next_state)
+        reward = self.reward(done)
+        
+        self.agent_state = next_state
+        
+        return next_state, reward, done
     
     def compute_legal_actions(self, state):
         blank_actions = self._get_blank_actions(state)
@@ -174,6 +189,9 @@ class Othello:
 
                 next_cell = state_mask[next_row, next_col].item()
 
+                if not (next_cell == BLANK_CELL or next_cell == STOLEN_CELL or next_cell == OWN_CELL):
+                    raise ValueError("不正な値が取得されました")
+                    
                 if next_cell == BLANK_CELL:
                     break
                 
@@ -191,28 +209,46 @@ class Othello:
         flippable_all_positions = np.array(flippable_all_positions).reshape(-1, 2)
         return flippable_all_positions
 
+class RandomAgent:
+    def __init__(self, gamma):
+        self.memory      = []                                             # (state, action, reward)をappend
+        self.gamma       = gamma                                          # 割引率
+        self.action_size = ACTION_SIZE                                    # 行動パターン
+        random_prob      = 1.0 / ACTION_SIZE                              # 各行動パターンを取りえる確率
+        pi               = {i: random_prob for i in range(ACTION_SIZE)}   # 方策
+        self.V           = defaultdict(lambda: 0)                         # 状態価値関数
+        self.cnts        = defaultdict(lambda: 0)                         # 各状態ごとのカウント
+
 
 def main():
     
     env = Othello()
     action = 0
     surrender_action = 100
+    gamma = 0.9
     state = env.reset()
+    agent = RandomAgent(gamma)
     
-    while True:
-        legal_actions = env.compute_legal_actions(state)
-        # action = int(input(f"legal actions : {legal_actions}"))
-        action = np.random.choice(legal_actions).item()
+    # while True:
+    #     legal_actions = env.compute_legal_actions(state)
+    #     # action = int(input(f"legal actions : {legal_actions}"))
+    #     action = np.random.choice(legal_actions).item()
         
-        if action == surrender_action:
-            print("降参です")
-            break
-        next_state, done = env.next_state(state, action, legal_actions)
-        state = next_state
-        if done:
-            break
+    #     if action == surrender_action:
+    #         print("降参です")
+    #         break
         
-    print(state.sum(axis=0))
+    #     next_state, reward, done = env.step(action, legal_actions)
+    #     print(next_state)
+    #     print(reward)
+    #     print(done)
+        
+    #     if done:
+    #         break
+        
+    #     state = next_state
+        
+    # print(next_state.sum(axis=0))
 
 if __name__ == "__main__":
     main()
