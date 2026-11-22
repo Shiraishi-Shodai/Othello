@@ -4,6 +4,7 @@ import math
 from common.constants import *
 from common.utils import *
 from common.render import render_v
+from tqdm import tqdm
 
 class Othello:
     DIRECTIONS = [
@@ -269,9 +270,11 @@ def main():
     gamma = 0.9
     state = env.reset()
     agent = RandomAgent(gamma)
-    episodes = 1
+    episodes = 100
     
-    for episode in range(episodes):
+    for episode in tqdm(range(episodes),
+                        desc="Gaming now!",
+                        unit="episode"):
         state = env.reset()
         agent.reset()
 
@@ -288,8 +291,8 @@ def main():
             
             state = next_state
 
-        for i in reversed(agent.memory):
-            state, action, reward, current_player = i
-            render_v(state, agent.V, agent.cnts, current_player)
+    for i in reversed(agent.memory):
+        state, action, reward, current_player = i
+        render_v(state, agent.V, agent.cnts, current_player)
 if __name__ == "__main__":
     main()
