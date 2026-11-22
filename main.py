@@ -1,5 +1,6 @@
 import numpy as np
 from collections import defaultdict
+import math
 
 # BOARD_TIMESTEPS = 3
 # BOARD_CHANNELS = 2
@@ -11,7 +12,17 @@ OWN_CELL = 1
 STOLEN_CELL = -1
 ACTION_SIZE = 65
 PASS_ACTION = 64
-    
+BOARD_DTYPE = np.dtype(np.int8)
+# TODO : 勝敗の判定
+COMPLETE = "complete"
+DRAW     = "draw"
+PROGRESS = "progress"
+REWARD_DICT = {
+    COMPLETE : 1,  # 盤面にすべて石を置いた状態である = 勝敗が決まった
+    DRAW     : 0,  # 引き分け
+    PROGRESS : 0   # ゲーム進行中
+}
+
 def id2position(id):
     row = id // BOARD_SIZE
     col = id % BOARD_SIZE
@@ -35,7 +46,7 @@ class Othello:
         
     def __init__(self):
         # 盤面の初期化
-        self.state = np.zeros((2, BOARD_SIZE, BOARD_SIZE), dtype=np.int8)
+        self.state = np.zeros((2, BOARD_SIZE, BOARD_SIZE), dtype=BOARD_DTYPE)
         self.state[0, 3, 4] = OWN_CELL
         self.state[0, 4, 3] = OWN_CELL
         self.state[1, 3, 3] = OWN_CELL
@@ -83,10 +94,7 @@ class Othello:
         # 勝利	     あり／なし	  する	   +1.0
         # 敗北	     あり／なし	  する	   -1.0
         # 引き分け    あり／なし   する     0.0
-        if not done:
-            return 0
-        
-        return 1
+        return REWARD_DICT[done]
 
     def step(self, action, legal_actions):
         state = self.agent_state
@@ -137,16 +145,16 @@ class Othello:
         # 終了条件1: 盤面がすべて埋まった
         sum_board = np.sum(next_state, axis=0)
         if np.all(sum_board == OWN_CELL).item():
-            return True
+            return COMPLETE
         
         # 終了条件2: 2人も合法手が存在しない
         current_legal_actions = self.compute_legal_actions(next_state)
         opponent_legal_actions = self.compute_legal_actions(next_state[::-1])
         if current_legal_actions == [PASS_ACTION] and opponent_legal_actions == [PASS_ACTION]:
-            return True
+            return DRAW
         
         # それ以外はゲーム進行中
-        return False
+        return PROGRESS
     
     def _validate_index(self, action_row, action_col):
         if action_row < 0 or action_row >= BOARD_SIZE or action_col < 0 or action_col >= BOARD_SIZE:
@@ -206,49 +214,97 @@ class Othello:
         if not flippable_all_positions:
             return flippable_all_positions
         
-        flippable_all_positions = np.array(flippable_all_positions).reshape(-1, 2)
+        flippable_all_positions = np.array(flippable_all_positions, dtype=BOARD_DTYPE).reshape(-1, 2)
         return flippable_all_positions
 
 class RandomAgent:
-    def __init__(self, gamma):
+    def __init__(self, gamma=0.9):
+        
+        if (0 > gamma or gamma > 1) or not math.isfinite(gamma):
+            raise ValueError("割引率には0~1の値を設定してください。")
+
         self.memory      = []                                             # (state, action, reward)をappend
         self.gamma       = gamma                                          # 割引率
-        self.action_size = ACTION_SIZE                                    # 行動パターン
-        random_prob      = 1.0 / ACTION_SIZE                              # 各行動パターンを取りえる確率
-        pi               = {i: random_prob for i in range(ACTION_SIZE)}   # 方策
-        self.V           = defaultdict(lambda: 0)                         # 状態価値関数
-        self.cnts        = defaultdict(lambda: 0)                         # 各状態ごとのカウント
+        self.pi          = defaultdict(dict)                        # 方策(合法手に対してのみ動的に保持する)
+        self.V           = defaultdict(float)                         # 状態価値関数
+        self.cnts        = defaultdict(int)                         # 各状態ごとのカウント
+        
+    def get_state_key(self, state):
+        if state.dtype != BOARD_DTYPE:
+            raise ValueError(f"dtypeが異なります。dtype : {state.dtype}")
+        
+        if state.shape != (2, BOARD_SIZE, BOARD_SIZE):
+            raise ValueError(f"shapeが異なります。shape : {state.shape}")
+        
+        # stateのメモリ配置がスライスや転置等でずれていた場合は隣り合うように変換する
+        return np.ascontiguousarray(state).tobytes()
+    
+    def remake_pi(self, legal_actions):
+        """合法手を考慮した上で方策をランダム化
+        """
+        if not legal_actions:
+            raise ValueError("パスも含めた合法手が存在しません。")
 
+        random_pi        = {}                        # 方策改善後にゴミデータが残り続けないように辞書を初期化
+        random_prob      = 1.0 / len(legal_actions)  # 合法手の各行動パターンを取りえる確率
+        
+        for i in legal_actions:
+            random_pi[i] = random_prob
+        
+        return random_pi
+
+    def get_action(self, state, legal_actions):
+        state_key        = self.get_state_key(state)
+        if state_key not in self.pi:
+            self.pi[state_key] = self.remake_pi(legal_actions)
+
+        pi               = self.pi[state_key]
+        actions          = list(pi.keys())
+        action_probs     = list(pi.values())
+        return np.random.choice(actions, p=action_probs)
+    
+    def add(self, state, action, reward):
+        self.memory.append((state.copy(), action, reward))
+    
+    def reset(self):
+        self.memory.clear()
+        
+    def eval(self):
+        # エピソードの終了から現在の状態までの収益
+        G = 0
+        for data in reversed(self.memory):
+            state, action, reward = data
+            state_key = self.get_state_key(state)
+            # ステップごとにプレイヤーが入れ替わるから符号はマイナスにする
+            G = reward - self.gamma * G
+            self.cnts[state_key] += 1
+            self.V[state_key] += (G - self.V[state_key]) / self.cnts[state_key]
 
 def main():
     
     env = Othello()
     action = 0
-    surrender_action = 100
     gamma = 0.9
     state = env.reset()
     agent = RandomAgent(gamma)
+    episodes = 100
     
-    # while True:
-    #     legal_actions = env.compute_legal_actions(state)
-    #     # action = int(input(f"legal actions : {legal_actions}"))
-    #     action = np.random.choice(legal_actions).item()
-        
-    #     if action == surrender_action:
-    #         print("降参です")
-    #         break
-        
-    #     next_state, reward, done = env.step(action, legal_actions)
-    #     print(next_state)
-    #     print(reward)
-    #     print(done)
-        
-    #     if done:
-    #         break
-        
-    #     state = next_state
-        
-    # print(next_state.sum(axis=0))
+    for episode in range(episodes):
+        state = env.reset()
+        agent.reset()
+
+        while True:
+            legal_actions = env.compute_legal_actions(state)
+            action        = agent.get_action(state, legal_actions)
+            
+            next_state, reward, done = env.step(action, legal_actions)
+            agent.add(state, action, reward)
+
+            if done == COMPLETE or done != DRAW:
+                agent.eval()
+                break
+            
+            state = next_state
 
 if __name__ == "__main__":
     main()
