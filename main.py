@@ -1,37 +1,10 @@
 import numpy as np
 from collections import defaultdict
 import math
+from common.constants import *
+from common.utils import *
+from common.render import render_v
 
-# BOARD_TIMESTEPS = 3
-# BOARD_CHANNELS = 2
-# COL_DICT = {"a": 0, "b": 1, "c": 2, "d": 3, "e": 4, "f": 5, "g": 6, "h": 7}
-# WTHOR_COORDINATE_LEN = 2
-BOARD_SIZE = 8
-BLANK_CELL = 0
-OWN_CELL = 1
-STOLEN_CELL = -1
-ACTION_SIZE = 65
-PASS_ACTION = 64
-BOARD_DTYPE = np.dtype(np.int8)
-# TODO : 勝敗の判定
-COMPLETE = "complete"
-DRAW     = "draw"
-PROGRESS = "progress"
-REWARD_DICT = {
-    COMPLETE : 1,  # 盤面にすべて石を置いた状態である = 勝敗が決まった
-    DRAW     : 0,  # 引き分け
-    PROGRESS : 0   # ゲーム進行中
-}
-
-def id2position(id):
-    row = id // BOARD_SIZE
-    col = id % BOARD_SIZE
-    
-    return (row, col)
-
-def position2id(position):
-    action_row, action_col = position
-    return action_row * BOARD_SIZE + action_col
 class Othello:
     DIRECTIONS = [
         (-1, 0),  # 上
@@ -55,13 +28,20 @@ class Othello:
         self.start_state = self.state.copy()
         self.agent_state = self.state.copy()
         
+        self.current_player = BLACK
+        
     def reset(self):
         self.agent_state = self.start_state.copy()
         return self.agent_state
 
     def states(self):
         pass
-
+    
+    def change_player(self, next_state):
+        next_state = next_state[::-1].copy()
+        self.current_player = 1 - self.current_player
+        return next_state
+        
     def next_state(self, state, action, legal_actions):
         next_state = state
                 
@@ -82,29 +62,56 @@ class Othello:
             next_state = self.flip(state, action)
         
         # プレイヤー視点入れ替え(参照を持つビューではなく、独立した配列を生成するためにcopyを使用)
-        next_state = next_state[::-1].copy()
+        next_state = self.change_player(next_state)
 
         return next_state
       
-    def reward(self, done):
-        # 報酬の視点 : 各状態のプレイヤー視点
-        # 状況	     盤面変化   ゲーム終了  報酬
-        # 通常の着手  あり	      しない    0.0
-        # パス	     なし	     しない    0.0
-        # 勝利	     あり／なし	  する	   +1.0
-        # 敗北	     あり／なし	  する	   -1.0
-        # 引き分け    あり／なし   する     0.0
-        return REWARD_DICT[done]
+    def reward(self, next_state, done):
+        # ゲーム進行中
+        if not done:
+            return 0
+
+        # next_stateでは視点が入れ替わっているため、
+        # [0]が次に行動するプレイヤー、[1]が直前に行動したプレイヤー
+        opponent_cells = np.sum(next_state[0]).item()
+        agent_cells  = np.sum(next_state[1]).item()
+
+        # 引き分け
+        if agent_cells == opponent_cells:
+            return 0
+        
+        # 勝ち
+        if agent_cells > opponent_cells:
+            return 1
+        
+        # 負け
+        return -1
+
+    def is_done(self, next_state):
+        # 終了条件1: 盤面がすべて埋まった
+        sum_board = np.sum(next_state, axis=0)
+        if np.all(sum_board == OWN_CELL).item():
+            return True
+        
+        # 終了条件2: 2人も合法手が存在しない
+        agent_legal_actions = self.compute_legal_actions(next_state)
+        opponent_legal_actions = self.compute_legal_actions(next_state[::-1])
+        if agent_legal_actions == [PASS_ACTION] and opponent_legal_actions == [PASS_ACTION]:
+            return True
+        
+        # それ以外はゲーム進行中
+        return False
 
     def step(self, action, legal_actions):
         state = self.agent_state
         next_state = self.next_state(state, action, legal_actions)
         done = self.is_done(next_state)
-        reward = self.reward(done)
-        
+        reward = self.reward(next_state, done)
+        current_player = self.current_player
+
         self.agent_state = next_state
         
-        return next_state, reward, done
+        return next_state, reward, done, current_player
     
     def compute_legal_actions(self, state):
         blank_actions = self._get_blank_actions(state)
@@ -140,21 +147,6 @@ class Othello:
         # パターンb : 元々相手の石→ひっくり返した        (0 → 1)
         next_state[:, flippable_rows, flippable_cols] = 1 - state[:, flippable_rows, flippable_cols]
         return next_state
-    
-    def is_done(self, next_state):
-        # 終了条件1: 盤面がすべて埋まった
-        sum_board = np.sum(next_state, axis=0)
-        if np.all(sum_board == OWN_CELL).item():
-            return COMPLETE
-        
-        # 終了条件2: 2人も合法手が存在しない
-        current_legal_actions = self.compute_legal_actions(next_state)
-        opponent_legal_actions = self.compute_legal_actions(next_state[::-1])
-        if current_legal_actions == [PASS_ACTION] and opponent_legal_actions == [PASS_ACTION]:
-            return DRAW
-        
-        # それ以外はゲーム進行中
-        return PROGRESS
     
     def _validate_index(self, action_row, action_col):
         if action_row < 0 or action_row >= BOARD_SIZE or action_col < 0 or action_col >= BOARD_SIZE:
@@ -228,16 +220,6 @@ class RandomAgent:
         self.pi          = defaultdict(dict)                        # 方策(合法手に対してのみ動的に保持する)
         self.V           = defaultdict(float)                         # 状態価値関数
         self.cnts        = defaultdict(int)                         # 各状態ごとのカウント
-        
-    def get_state_key(self, state):
-        if state.dtype != BOARD_DTYPE:
-            raise ValueError(f"dtypeが異なります。dtype : {state.dtype}")
-        
-        if state.shape != (2, BOARD_SIZE, BOARD_SIZE):
-            raise ValueError(f"shapeが異なります。shape : {state.shape}")
-        
-        # stateのメモリ配置がスライスや転置等でずれていた場合は隣り合うように変換する
-        return np.ascontiguousarray(state).tobytes()
     
     def remake_pi(self, legal_actions):
         """合法手を考慮した上で方策をランダム化
@@ -254,17 +236,17 @@ class RandomAgent:
         return random_pi
 
     def get_action(self, state, legal_actions):
-        state_key        = self.get_state_key(state)
+        state_key        = get_state_key(state)
         if state_key not in self.pi:
             self.pi[state_key] = self.remake_pi(legal_actions)
 
         pi               = self.pi[state_key]
         actions          = list(pi.keys())
         action_probs     = list(pi.values())
-        return np.random.choice(actions, p=action_probs)
+        return np.random.choice(actions, p=action_probs).item()
     
-    def add(self, state, action, reward):
-        self.memory.append((state.copy(), action, reward))
+    def add(self, state, action, reward, current_player):
+        self.memory.append((state.copy(), action, reward, current_player))
     
     def reset(self):
         self.memory.clear()
@@ -273,8 +255,8 @@ class RandomAgent:
         # エピソードの終了から現在の状態までの収益
         G = 0
         for data in reversed(self.memory):
-            state, action, reward = data
-            state_key = self.get_state_key(state)
+            state, action, reward, _ = data
+            state_key = get_state_key(state)
             # ステップごとにプレイヤーが入れ替わるから符号はマイナスにする
             G = reward - self.gamma * G
             self.cnts[state_key] += 1
@@ -287,7 +269,7 @@ def main():
     gamma = 0.9
     state = env.reset()
     agent = RandomAgent(gamma)
-    episodes = 100
+    episodes = 1
     
     for episode in range(episodes):
         state = env.reset()
@@ -297,14 +279,17 @@ def main():
             legal_actions = env.compute_legal_actions(state)
             action        = agent.get_action(state, legal_actions)
             
-            next_state, reward, done = env.step(action, legal_actions)
-            agent.add(state, action, reward)
+            next_state, reward, done, current_player = env.step(action, legal_actions)
+            agent.add(state, action, reward, current_player)
 
-            if done == COMPLETE or done != DRAW:
+            if done:
                 agent.eval()
                 break
             
             state = next_state
 
+        for i in reversed(agent.memory):
+            state, action, reward, current_player = i
+            render_v(state, agent.V, agent.cnts, current_player)
 if __name__ == "__main__":
     main()
