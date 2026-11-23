@@ -1,3 +1,4 @@
+import math
 from common.constants import *
 
 def id2position(id):
@@ -20,3 +21,11 @@ def get_state_key(state):
     # stateのメモリ配置がスライスや転置等でずれていた場合は隣り合うように変換する
     return np.ascontiguousarray(state).tobytes()
 
+
+def valid_gamma(gamma):
+    if (0 > gamma or gamma > 1) or not math.isfinite(gamma):
+        raise ValueError("割引率には0~1の値を設定してください。")
+    
+def valid_alpha(alpha):
+    if (0 > alpha or alpha > 1) or not math.isfinite(alpha):
+        raise ValueError("alphaには0~1の値を設定してください。")
